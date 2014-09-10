@@ -1,0 +1,111 @@
+#! /usr/bin/env bash
+
+t="$(cd "$(dirname "$0")" && pwd -P)"
+
+d_dir="/usr/local/lib/xen/boot"
+
+b_dir="$t/backup"
+b_dir_b="$(basename "$b_dir")"
+
+p_dir="$t/pkg"
+p_dir_b="$(basename "$p_dir")"
+
+s_dir="$t/xen_src"
+s_dir_b="$(basename "$s_dir")"
+
+get_xen_ver() {
+	conf_log="$s_dir/config.log"
+	[ -e "$conf_log" ] && grep -R '^PACKAGE_VERSION=' "$conf_log" | cut -d'=' -f2 | tr -d "'"
+}
+
+install_ubuntu_deps() {
+	apt-get install -y git wget python-dev gettext bin86 bcc iasl uuid-dev libncurses5-dev pkg-config libglib2.0-dev libyajl-dev libpixman-1-dev bzip2 libaio-dev texinfo libc6-dev-i386 checkinstall
+}
+
+case "$1" in
+	deps)
+		install_ubuntu_deps
+		;;
+
+	src)
+		(cd "$t" && git clone git://xenbits.xen.org/xen "$s_dir_b")
+		;;
+	build)
+		(cd "$s_dir" && ./configure && make stubdom)
+		;;
+	ver)
+		get_xen_ver
+		;;
+	find)
+		(find "$s_dir" -name 'pv*grub*' -type f)
+		;;
+	s_clean)
+		[ -d "$s_dir" ] && find "$s_dir" -type f -delete && rm -r "$s_dir_b"
+		;;
+	backup)
+		[ -e "$b_dir" ] || mkdir -p "$b_dir"
+		"$0" find | while read src; do
+			echo "Copying '$src' to '$b_dir/' ..."
+			cp "$src" "$b_dir/"
+		done
+		;;
+	b_clean)
+		[ -d "$b_dir" ] && find "$b_dir" -type f -delete && rm -r "$b_dir_b"
+		;;
+	raw_inst)
+		[ -e "$d_dir" ] || mkdir -p "$d_dir"
+		"$0" find | while read src; do
+			echo "Copying '$src' to '$d_dir/' ..."
+			cp "$src" "$d_dir/"
+		done
+		;;
+	raw_find)
+		[ -e "$d_dir" ] && find "$d_dir" -name 'pv*grub*' -print
+		;;
+	raw_del)
+		[ -e "$d_dir" ] && find "$d_dir" -name 'pv*grub*' -delete
+		;;
+	mk_make)
+		"$0" backup
+		echo "$(cat <<EOF
+install:
+	install -d /usr/local/lib/xen/boot
+	install -D ./*.gz /usr/local/lib/xen/boot/
+EOF
+		)" > "$b_dir/Makefile"
+		;;
+	ch_inst)
+		"$0" mk_make
+		[ -e "$p_dir" ] || mkdir -p "$p_dir"
+		c="checkinstall -D -y --nodoc --pkgname xen-pv-grub --pkgversion 1.0 --pkgrelease xen-$(get_xen_ver) --pakdir '$p_dir'" 
+		echo "$c"
+		(cd "$b_dir" && $c)
+		;;
+	p_clean)
+		[ -d "$p_dir" ] && find "$p_dir" -type f -delete && rm -r "$p_dir_b"
+		;;
+	all)
+		"$0" ch_inst
+		"$0" b_clean
+		"$0" p_clean
+		;;
+	*)
+		echo "Usage: $0 <deps|src>"
+		echo "          deps     - install dependencies"
+		echo "          src      - get xen soucre"
+		echo "          s_clean  - Clean xen source dir"
+		echo "          build    - build xen stubdom (pv-grub)"
+		echo "          ver	 - get xen version"
+		echo "          find     - find pv-grub files"
+		echo "          backup   - pv-grub files"
+		echo "          b_clean  - Clean backup dir"
+		echo "          raw_inst - raw install (just copy to '$d_dir')"
+		echo "          raw_find - find pv-grub files in '$d_dir'"
+		echo "          raw_del  - raw uninstall (just remove from '$d_dir')"
+		echo "          mk_make  - Make Makefile" 
+		echo "          ch_inst  - Create package by checkinstall"
+		echo "          mk_pkg   - Create package"
+		echo "          p_clean  - Clean package dir"
+		echo "          all      - ch_inst, b_clean, p_clean"
+		;;
+esac

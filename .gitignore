@@ -1,0 +1,6 @@
+backup
+backup/*
+pkg
+pkg/*
+xen_src
+xen_src/*
